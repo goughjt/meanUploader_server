@@ -8,17 +8,25 @@ var multiparty = require('multiparty');
 
 //create the app
 var app = express();
+var http = require('http').Server(app);
+var io = require('socket.io')(http);
+require('./helpers/socketio').set(io);
 
 //add middleware necessary for rest apis
 app.use(bodyParser.urlencoded({extended: true}));
 app.use(bodyParser.json());
 app.use(methodOverride('X-HTTP-Method-Override'));
 
-//CORS support
+// When dealing with CORS (Cross-Origin Resource Sharing)
+// requests, the client should pass-through its origin (the
+// requesting domain). We should either echo that or use *
+// if the origin was not passed.
 app.use(function(req, res, next) {
-  res.header('Access-Control-Allow-Origin', '*');
+  var origin = (req.headers.origin || "*")
+  res.header('Access-Control-Allow-Origin', origin);
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type');
+  res.header('Access-Control-Allow-Credentials', true);
   next();
 });
 
@@ -31,9 +39,23 @@ mongoose.connection.once('open', function() {
   //load the routes
   var routes = require('./routes');
   _.each(routes, function(controller, route) {
-    app.use(route, controller(app, route));
+    app.use(route, controller(app, route, io));
   });
   console.log('Listening on port 3000...');
-  app.listen(3000);
-});
+  /* app.listen(3000);*/
+  http.listen(3000);
+  /* http.listen(3001);*/
+  io.on('connection', function(socket){
+    console.log('a user connected');
+    socket.on('disconnect', function(){
+      console.log('user disconnected');
+    });
+    socket.on('event', function(data){
+      console.log(data);
+    });
+    socket.on('message', function(data){
+      console.log(data);
+    });
+  });
 
+});

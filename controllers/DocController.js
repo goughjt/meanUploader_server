@@ -2,8 +2,9 @@ var crypto = require('crypto');
 var multiparty = require('multiparty');
 var restful = require('node-restful');
 var _ = require('lodash');
+/* var io = require('socket.io');*/
 
-module.exports = function(app, route) {
+module.exports = function(app, route, io) {
 
   var Resource = restful.model(
     'doc',
@@ -11,16 +12,26 @@ module.exports = function(app, route) {
   ).methods(['get', 'post']);
 
   Resource.before('get', removeFile);
+
   Resource.after('get', removeFile_BadWay);
   Resource.after('get', prettifyGetList);
+
   Resource.before('post', populateFields);
+
+  Resource.before('post', createConversionJob);
 
   Resource.register(app, route);
 
-  return function(req, res, next){
+  return function(req, res, next) {
+    req.io = io;
     next();
   };
+
 };
+
+function pushNotification(message) {
+
+}
 
 function prettifyGetList(req, res, next) {
   var nameSeparator = /\.[^\.]+$/;
@@ -45,11 +56,21 @@ function removeFile(req, res, next) {
   next();
 }
 
+function createConversionJob(req, res, next){
+  var io = require('../helpers/socketio').get();
+  io.emit('message', 'docCtrl says hi');
+  /* req.io.emit(data);*/
+  next();
+}
+
 function populateFields(req, res, next) {
 
   var options = {uploadDir: "./uploads"};
   var form = new multiparty.Form(options);
   form.parse(req, function(err, fields, files) {
+    if(!files || !files.file)
+      return;
+
     var file = files.file[0];
     console.log(file);
 
