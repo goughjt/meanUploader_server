@@ -1,7 +1,7 @@
 {
-  "name": "meanapp",
+  "name": "meanUploader_server",
   "version": "1.0.0",
-  "description": "",
+  "description": "The server half of an unstable testing ground for uploading files in the M.E.A.N stack ",
   "main": "index.js",
   "scripts": {
     "debug": "node-debug index.js",
@@ -10,7 +10,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
-  "license": "ISC",
+  "license": "",
   "dependencies": {
     "body-parser": "^1.17.1",
     "connect-multiparty": "^2.0.0",
