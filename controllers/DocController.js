@@ -2,9 +2,17 @@ var crypto = require('crypto');
 var multiparty = require('multiparty');
 var restful = require('node-restful');
 var _ = require('lodash');
-/* var io = require('socket.io');*/
+var kue = require('kue')
+  , queue = kue.createQueue();
 
-module.exports = function(app, route, io) {
+/* accept 20 simultaneous jobs*/
+queue.process('conversion', 20, function(job, done){
+  /* This is where the mysterious conversion happens*/
+  /* A nice big 7s delay here for some dramatic tension*/
+  setTimeout(done,7*1000);
+});
+
+module.exports = function(app, route) {
 
   var Resource = restful.model(
     'doc',
@@ -18,19 +26,19 @@ module.exports = function(app, route, io) {
 
   Resource.before('post', populateFields);
 
-  Resource.before('post', createConversionJob);
+  Resource.after('post', createConversionJob);
 
   Resource.register(app, route);
 
   return function(req, res, next) {
-    req.io = io;
     next();
   };
 
 };
 
 function pushNotification(message) {
-
+  var io = require('../helpers/socketio').get();
+  io.emit('message', message);
 }
 
 function prettifyGetList(req, res, next) {
@@ -57,9 +65,30 @@ function removeFile(req, res, next) {
 }
 
 function createConversionJob(req, res, next){
-  var io = require('../helpers/socketio').get();
-  io.emit('message', 'docCtrl says hi');
-  /* req.io.emit(data);*/
+  var job = queue.create('conversion', {
+    mongoose_id: res.locals.bundle.id,
+    name: req.body.name,
+    status: req.body.status,
+  })
+  /* with kue, the priority convention of low and high is counterintuitive (for me): high number value = low priority*/
+    .priority(req.body.file_format === 'application/pdf' ? 100 : 10)
+    .attempts(2)
+    .backoff( {type:'exponential'} )
+    .ttl((req.body.file_format === 'application/pdf' ? 100 : 10)*1000)
+  /* can also have ON promotion, progress, failed_attempt, failed, remove*/
+    .on('enqueue', function() {
+      pushNotification(req.body.name + ' is Queued');
+    })
+    .on('start', function() {
+      pushNotification(req.body.name + ' is Processing');
+    })
+    .on('complete', function() {
+      pushNotification(req.body.name + ' is Processed');
+    })
+    .save( function(err){
+      if( !err ) console.log( job.id );
+    })
+  ;
   next();
 }
 

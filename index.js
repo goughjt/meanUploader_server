@@ -39,7 +39,7 @@ mongoose.connection.once('open', function() {
   //load the routes
   var routes = require('./routes');
   _.each(routes, function(controller, route) {
-    app.use(route, controller(app, route, io));
+    app.use(route, controller(app, route));
   });
   console.log('Listening on port 3000...');
   /* app.listen(3000);*/
@@ -49,9 +49,6 @@ mongoose.connection.once('open', function() {
     console.log('a user connected');
     socket.on('disconnect', function(){
       console.log('user disconnected');
-    });
-    socket.on('event', function(data){
-      console.log(data);
     });
     socket.on('message', function(data){
       console.log(data);
