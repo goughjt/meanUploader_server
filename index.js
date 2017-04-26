@@ -51,7 +51,7 @@ mongoose.connection.once('open', function() {
       console.log('user disconnected');
     });
     socket.on('message', function(data){
-      console.log(data);
+      console.log('message: ' + data);
     });
   });
 

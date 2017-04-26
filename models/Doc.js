@@ -18,9 +18,13 @@ var DocSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  filepath: {
+  file_path: {
     type: String,
     required: true
+  },
+  file: {
+    type: Buffer,
+    required: false
   }
 });
 

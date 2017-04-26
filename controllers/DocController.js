@@ -1,3 +1,4 @@
+var mongoose = require('mongoose');
 var crypto = require('crypto');
 var multiparty = require('multiparty');
 var restful = require('node-restful');
@@ -12,20 +13,21 @@ queue.process('conversion', 20, function(job, done){
   setTimeout(done,7*1000);
 });
 
+var Model = {};
+
 module.exports = function(app, route) {
 
-  var Resource = restful.model(
-    'doc',
-    app.models.doc
-  ).methods(['get', 'post']);
+  Model = mongoose.model('doc', app.models.doc);
+  var Resource = restful.model('doc', app.models.doc).methods(['get', 'post']);
 
   Resource.before('get', removeFile);
 
-  Resource.after('get', removeFile_BadWay);
+  Resource.after('get', hashFilePath);
   Resource.after('get', prettifyGetList);
 
   Resource.before('post', populateFields);
 
+  Resource.after('post', pushNewDoc);
   Resource.after('post', createConversionJob);
 
   Resource.register(app, route);
@@ -36,9 +38,14 @@ module.exports = function(app, route) {
 
 };
 
-function pushNotification(message) {
+function pushNewDoc(req, res, next) {
   var io = require('../helpers/socketio').get();
-  io.emit('message', message);
+  io.emit('newDoc', '');
+}
+
+function pushStatusUpdate(statusUpdate) {
+  var io = require('../helpers/socketio').get();
+  io.emit('statusUpdate', statusUpdate);
 }
 
 function prettifyGetList(req, res, next) {
@@ -50,21 +57,22 @@ function prettifyGetList(req, res, next) {
   next();
 }
 
-/* This is a bad way of not revealing filepaths - should edit query in before fxn*/
-function removeFile_BadWay(req, res, next) {
+function hashFilePath(req, res, next) {
   _.each(res.locals.bundle, function(x) {
-    x.filepath = null;
+    x.file_path = sha256(x.file_path);
+    /* This is a bad way of not revealing files - should edit query in before fxn*/
+    x.file = null;
   });
   next();
 }
 
-/* It would be nice if this worked...*/
+/* Need this to work when move to storing file in mongoose Buffer rather than to filesystem...*/
 function removeFile(req, res, next) {
-  req.query = "?select=name%20created_at%20file_format%20status";
+  req.query = "?select=name%20created_at%20file_format%20status%20file_path";
   next();
 }
 
-function createConversionJob(req, res, next){
+function createConversionJob(req, res, next) {
   var job = queue.create('conversion', {
     mongoose_id: res.locals.bundle.id,
     name: req.body.name,
@@ -77,13 +85,22 @@ function createConversionJob(req, res, next){
     .ttl((req.body.file_format === 'application/pdf' ? 100 : 10)*1000)
   /* can also have ON promotion, progress, failed_attempt, failed, remove*/
     .on('enqueue', function() {
-      pushNotification(req.body.name + ' is Queued');
+      Model.update( {file_path: req.body.file_path}, {status: 'Queued'}, {}, function(e) {
+        console.log(e);
+      });
+      pushStatusUpdate({hashPath: sha256(req.body.file_path),status: 'Queued'});
     })
     .on('start', function() {
-      pushNotification(req.body.name + ' is Processing');
+      Model.update( {file_path: req.body.file_path}, {status: 'Processing'}, {}, function(e) {
+        console.log(e);
+      });
+      pushStatusUpdate({hashPath: sha256(req.body.file_path),status: 'Processing'});
     })
     .on('complete', function() {
-      pushNotification(req.body.name + ' is Processed');
+      Model.update( {file_path: req.body.file_path}, {status: 'Processed'}, {}, function(e) {
+        console.log(e);
+      });
+      pushStatusUpdate({hashPath: sha256(req.body.file_path),status: 'Processed'});
     })
     .save( function(err){
       if( !err ) console.log( job.id );
@@ -107,7 +124,7 @@ function populateFields(req, res, next) {
     req.body.file_format = file.headers['content-type'];
     req.body.created_at = new Date();
     req.body.status = 'Queued';
-    req.body.filepath = file.path;
+    req.body.file_path = file.path;
 
     console.log(req.body);
     next();
