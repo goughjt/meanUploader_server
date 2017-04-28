@@ -4,7 +4,8 @@ var multiparty = require('multiparty');
 var restful = require('node-restful');
 var _ = require('lodash');
 var kue = require('kue')
-  , queue = kue.createQueue();
+var queue = kue.createQueue();
+var socketio = require('../helpers/socketio');
 
 /* accept 20 simultaneous jobs*/
 queue.process('conversion', 20, function(job, done){
@@ -14,16 +15,18 @@ queue.process('conversion', 20, function(job, done){
 });
 
 var Model = {};
+var io = {};
 
 module.exports = function(app, route) {
 
   Model = mongoose.model('doc', app.models.doc);
+  io = socketio.get();
+
   var Resource = restful.model('doc', app.models.doc).methods(['get', 'post']);
 
   Resource.before('get', removeFile);
 
-  Resource.after('get', hashFilePath);
-  Resource.after('get', prettifyGetList);
+  Resource.after('get', prepareAllDocsForFrontend);
 
   Resource.before('post', populateFields);
 
@@ -38,30 +41,25 @@ module.exports = function(app, route) {
 
 };
 
-function pushNewDoc(req, res, next) {
-  var io = require('../helpers/socketio').get();
-  io.emit('newDoc', '');
-}
-
-function pushStatusUpdate(statusUpdate) {
-  var io = require('../helpers/socketio').get();
-  io.emit('statusUpdate', statusUpdate);
-}
-
-function prettifyGetList(req, res, next) {
+/* prettifyGetList and hashFilePath*/
+function prepareDocForFrontend(x){
   var nameSeparator = /\.[^\.]+$/;
-  _.each(res.locals.bundle, function(x){
-    x.name = x.name.search(nameSeparator) === -1 ? x.name : _.truncate(x.name, {'length': x.name.length-1, 'separator': nameSeparator, 'omission': ''});
-    x.file_format = _.toUpper(_.last(_.split(x.file_format, '/')));
-  });
+  x.name = x.name.search(nameSeparator) === -1 ? x.name : _.truncate(x.name, {'length': x.name.length-1, 'separator': nameSeparator, 'omission': ''});
+  x.file_format = _.toUpper(_.last(_.split(x.file_format, '/')));
+  x.file_path = sha256(x.file_path);
+  /* This is a bad way of not revealing files - should edit query in before fxn*/
+  x.file = null;
+  return x;
+}
+
+function pushNewDoc(req, res, next) {
+  io.emit('newDoc', prepareDocForFrontend(res.locals.bundle));
   next();
 }
 
-function hashFilePath(req, res, next) {
+function prepareAllDocsForFrontend(req, res, next) {
   _.each(res.locals.bundle, function(x) {
-    x.file_path = sha256(x.file_path);
-    /* This is a bad way of not revealing files - should edit query in before fxn*/
-    x.file = null;
+    prepareDocForFrontend(x);
   });
   next();
 }
@@ -73,40 +71,38 @@ function removeFile(req, res, next) {
 }
 
 function createConversionJob(req, res, next) {
+
+  var mongoose_id = res.locals.bundle.id;
+
   var job = queue.create('conversion', {
-    mongoose_id: res.locals.bundle.id,
     name: req.body.name,
     status: req.body.status,
   })
-  /* with kue, the priority convention of low and high is counterintuitive (for me): high number value = low priority*/
+  /* with kue, the priority convention is high number value = low priority*/
     .priority(req.body.file_format === 'application/pdf' ? 100 : 10)
     .attempts(2)
     .backoff( {type:'exponential'} )
     .ttl((req.body.file_format === 'application/pdf' ? 100 : 10)*1000)
   /* can also have ON promotion, progress, failed_attempt, failed, remove*/
     .on('enqueue', function() {
-      Model.update( {file_path: req.body.file_path}, {status: 'Queued'}, {}, function(e) {
-        console.log(e);
-      });
-      pushStatusUpdate({hashPath: sha256(req.body.file_path),status: 'Queued'});
+      updateStatus(mongoose_id, 'Queued', sha256(req.body.file_path));
     })
     .on('start', function() {
-      Model.update( {file_path: req.body.file_path}, {status: 'Processing'}, {}, function(e) {
-        console.log(e);
-      });
-      pushStatusUpdate({hashPath: sha256(req.body.file_path),status: 'Processing'});
+      updateStatus(mongoose_id, 'Processing', sha256(req.body.file_path));
     })
     .on('complete', function() {
-      Model.update( {file_path: req.body.file_path}, {status: 'Processed'}, {}, function(e) {
-        console.log(e);
-      });
-      pushStatusUpdate({hashPath: sha256(req.body.file_path),status: 'Processed'});
+      updateStatus(mongoose_id, 'Processed', sha256(req.body.file_path));
     })
     .save( function(err){
       if( !err ) console.log( job.id );
     })
   ;
   next();
+}
+
+function updateStatus(mongoose_id, new_status, hash_path) {
+  Model.update( {_id: mongoose_id}, {status: new_status}, {}, function(){});
+  io.emit('statusUpdate', {hashPath: hash_path, status: new_status});
 }
 
 function populateFields(req, res, next) {

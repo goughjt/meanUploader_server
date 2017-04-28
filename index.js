@@ -8,8 +8,8 @@ var multiparty = require('multiparty');
 
 //create the app
 var app = express();
-var http = require('http').Server(app);
-var io = require('socket.io')(http);
+var httpServer = require('http').Server(app);
+var io = require('socket.io')(httpServer);
 require('./helpers/socketio').set(io);
 
 //add middleware necessary for rest apis
@@ -31,7 +31,7 @@ app.use(function(req, res, next) {
 });
 
 //connect to mongo db
-mongoose.connect('mongodb://localhost/meanapp');
+mongoose.connect('mongodb://localhost/meanUploader');
 mongoose.connection.once('open', function() {
   //load the models
   app.models = require('./models/index');
@@ -41,17 +41,11 @@ mongoose.connection.once('open', function() {
   _.each(routes, function(controller, route) {
     app.use(route, controller(app, route));
   });
-  console.log('Listening on port 3000...');
-  /* app.listen(3000);*/
-  http.listen(3000);
-  /* http.listen(3001);*/
+  httpServer.listen(3000);
   io.on('connection', function(socket){
     console.log('a user connected');
     socket.on('disconnect', function(){
       console.log('user disconnected');
-    });
-    socket.on('message', function(data){
-      console.log('message: ' + data);
     });
   });
 
