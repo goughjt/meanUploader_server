@@ -78,7 +78,7 @@ function createConversionJob(req, res, next) {
     name: req.body.name,
     status: req.body.status,
   })
-  /* with kue, the priority convention is high number value = low priority*/
+  /* RFC5424: severity of all levels is assumed to be numerically ascending from most important to least important*/
     .priority(req.body.file_format === 'application/pdf' ? 100 : 10)
     .attempts(2)
     .backoff( {type:'exponential'} )
@@ -94,7 +94,7 @@ function createConversionJob(req, res, next) {
       updateStatus(mongoose_id, 'Processed', sha256(req.body.file_path));
     })
     .save( function(err){
-      if( !err ) console.log( job.id );
+      //TODO: need error handling here
     })
   ;
   next();
@@ -114,7 +114,6 @@ function populateFields(req, res, next) {
       return;
 
     var file = files.file[0];
-    console.log(file);
 
     req.body.name = _.trim(file.originalFilename);
     req.body.file_format = file.headers['content-type'];
@@ -122,7 +121,6 @@ function populateFields(req, res, next) {
     req.body.status = 'Queued';
     req.body.file_path = file.path;
 
-    console.log(req.body);
     next();
   });
 }

@@ -1,52 +1,17 @@
-var express = require('express');
+var config = require('./config-debug');
+var server = require('./server');
 var mongoose = require('mongoose');
-var bodyParser = require('body-parser');
-var methodOverride = require('method-override');
-var path = require('path');
-var _ = require('lodash');
-var multiparty = require('multiparty');
+var winston = require('winston');
 
-//create the app
-var app = express();
-var httpServer = require('http').Server(app);
-var io = require('socket.io')(httpServer);
-require('./helpers/socketio').set(io);
-
-//add middleware necessary for rest apis
-app.use(bodyParser.urlencoded({extended: true}));
-app.use(bodyParser.json());
-app.use(methodOverride('X-HTTP-Method-Override'));
-
-// When dealing with CORS (Cross-Origin Resource Sharing)
-// requests, the client should pass-through its origin (the
-// requesting domain). We should either echo that or use *
-// if the origin was not passed.
-app.use(function(req, res, next) {
-  var origin = (req.headers.origin || "*")
-  res.header('Access-Control-Allow-Origin', origin);
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type');
-  res.header('Access-Control-Allow-Credentials', true);
-  next();
+winston.add(winston.transports.File, {
+  filename: config.logger.api
 });
 
-//connect to mongo db
-mongoose.connect('mongodb://localhost/meanUploader');
+winston.handleExceptions(new winston.transports.File({
+	filename: config.logger.exception
+}));
+
+mongoose.connect(config.db.mongodb);
 mongoose.connection.once('open', function() {
-  //load the models
-  app.models = require('./models/index');
-
-  //load the routes
-  var routes = require('./routes');
-  _.each(routes, function(controller, route) {
-    app.use(route, controller(app, route));
-  });
-  httpServer.listen(3000);
-  io.on('connection', function(socket){
-    console.log('a user connected');
-    socket.on('disconnect', function(){
-      console.log('user disconnected');
-    });
-  });
-
+  server.start();
 });
