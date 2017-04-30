@@ -2,5 +2,4 @@
 /uploads/*.pdf
 /uploads/*.html
 dump.rdb
-/logs/*
 
