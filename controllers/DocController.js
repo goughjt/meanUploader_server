@@ -3,16 +3,10 @@ var crypto = require('crypto');
 var multiparty = require('multiparty');
 var restful = require('node-restful');
 var _ = require('lodash');
-var kue = require('kue')
-var queue = kue.createQueue();
 var socketio = require('../helpers/socketio');
-
-/* accept 20 simultaneous jobs*/
-queue.process('conversion', 20, function(job, done){
-  /* This is where the mysterious conversion happens*/
-  /* A nice big 7s delay here for some dramatic tension*/
-  setTimeout(done,7*1000);
-});
+var kue = require('../helpers/kue');
+var server = require('../server');
+var winston = require('winston');
 
 var Model = {};
 var io = {};
@@ -25,12 +19,8 @@ module.exports = function(app, route) {
   var Resource = restful.model('doc', app.models.doc).methods(['get', 'post']);
 
   Resource.before('get', removeFile);
-
   Resource.after('get', prepareAllDocsForFrontend);
-
   Resource.before('post', populateFields);
-
-  Resource.after('post', pushNewDoc);
   Resource.after('post', createConversionJob);
 
   Resource.register(app, route);
@@ -40,6 +30,12 @@ module.exports = function(app, route) {
   };
 
 };
+
+/* Need this to work when move to storing file in mongoose Buffer rather than to filesystem...*/
+function removeFile(req, res, next) {
+  req.query = "?select=name%20created_at%20file_format%20status%20file_path";
+  next();
+}
 
 /* prettifyGetList and hashFilePath*/
 function prepareDocForFrontend(x){
@@ -52,11 +48,6 @@ function prepareDocForFrontend(x){
   return x;
 }
 
-function pushNewDoc(req, res, next) {
-  io.emit('newDoc', prepareDocForFrontend(res.locals.bundle));
-  next();
-}
-
 function prepareAllDocsForFrontend(req, res, next) {
   _.each(res.locals.bundle, function(x) {
     prepareDocForFrontend(x);
@@ -64,17 +55,33 @@ function prepareAllDocsForFrontend(req, res, next) {
   next();
 }
 
-/* Need this to work when move to storing file in mongoose Buffer rather than to filesystem...*/
-function removeFile(req, res, next) {
-  req.query = "?select=name%20created_at%20file_format%20status%20file_path";
-  next();
+function populateFields(req, res, next) {
+
+  var options = {uploadDir: "./uploads"};
+  var form = new multiparty.Form(options);
+  form.parse(req, function(err, fields, files) {
+    if(!files || !files.file)
+      return;
+
+    var file = files.file[0];
+
+    req.body.name = _.trim(file.originalFilename);
+    req.body.file_format = file.headers['content-type'];
+    req.body.created_at = new Date();
+    req.body.status = 'Queued';
+    req.body.file_path = file.path;
+
+    next();
+  });
 }
 
 function createConversionJob(req, res, next) {
 
+  io.emit('newDoc', prepareDocForFrontend(res.locals.bundle));
+
   var mongoose_id = res.locals.bundle.id;
 
-  var job = queue.create('conversion', {
+  var job = kue.queue.create('conversion', {
     name: req.body.name,
     status: req.body.status,
   })
@@ -102,27 +109,7 @@ function createConversionJob(req, res, next) {
 
 function updateStatus(mongoose_id, new_status, hash_path) {
   Model.update( {_id: mongoose_id}, {status: new_status}, {}, function(){});
-  io.emit('statusUpdate', {hashPath: hash_path, status: new_status});
-}
-
-function populateFields(req, res, next) {
-
-  var options = {uploadDir: "./uploads"};
-  var form = new multiparty.Form(options);
-  form.parse(req, function(err, fields, files) {
-    if(!files || !files.file)
-      return;
-
-    var file = files.file[0];
-
-    req.body.name = _.trim(file.originalFilename);
-    req.body.file_format = file.headers['content-type'];
-    req.body.created_at = new Date();
-    req.body.status = 'Queued';
-    req.body.file_path = file.path;
-
-    next();
-  });
+  io.emit('statusUpdate', {hashPath: hash_path, status: new_status, timestamp: new Date()});
 }
 
 function sha256(data) {

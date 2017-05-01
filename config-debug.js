@@ -1,7 +1,7 @@
 module.exports = {
   "db": {
-    "mongodb": "mongodb://localhost/meanUploader"
-    /* "mongodb": "mongodb://username:password@dsXXXXX.mongolab.com:45077/databasename"*/
+    "mongodb": "mongodb://localhost/meanUploader",
+    "options": {}
   },
   "logger": {
     "api": "logs/api.log",

@@ -3,11 +3,9 @@ var express = require('express');
 var bodyParser = require('body-parser');
 var methodOverride = require('method-override');
 var _ = require('lodash');
+var http = require('http');
 
 var app = express();
-var httpServer = require('http').Server(app);
-var io = require('socket.io')(httpServer);
-require('./helpers/socketio').set(io);
 
 //add middleware necessary for rest apis
 app.use(bodyParser.urlencoded({extended: true}));
@@ -23,6 +21,11 @@ app.use(function(req, res, next) {
   next();
 });
 
+var server = {};
+var httpServer = http.Server(app);
+var io = require('socket.io')(httpServer);
+require('./helpers/socketio').set(io);
+
 function start() {
   app.models = require('./models/index');
 
@@ -30,7 +33,7 @@ function start() {
   _.each(routes, function(controller, route) {
     app.use(route, controller(app, route));
   });
-  httpServer.listen(3000);
+  server = httpServer.listen(3000);
   io.on('connection', function(socket){
     winston.info('a user connected');
     socket.on('disconnect', function(){
@@ -39,5 +42,11 @@ function start() {
   });
 }
 
+function stop() {
+  server.close();
+  process.exit();
+}
+
 exports.start = start;
-exports.app = app;
+exports.stop = stop;
+/* exports.app = app;*/
