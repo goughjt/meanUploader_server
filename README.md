@@ -1,7 +1,6 @@
 # M.E.A.N. Uploader (server)
 
-![alt text][logo]
-[logo]: https://github.com/goughjt/meanUploader_client/blob/master/app/images/413_small.png "The terror"
+![alt text](https://github.com/goughjt/meanUploader_client/blob/master/app/images/413_small.png "The terror")
 
 ### About
 The server half of an unstable testing ground for uploading files in the M.E.A.N stack
